@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>James & Harper Reordering</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+     <style>
+        :root {
+            --primary-purple: #6a1b9a;
+            --light-purple: #9c4dcc;
+            --dark-purple: #38006b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .header {
+            text-align: center;
+            color: var(--primary-purple);
+            margin-bottom: 2rem;
+        }
+
+        .btn-container {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            background-color: var(--primary-purple);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: var(--light-purple);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 2rem auto;
+            padding: 2rem;
+            width: 95%;
+            max-width: 1400px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 8px;
+        }
+
+        .stock-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .stock-table th,
+        .stock-table td {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .stock-table th {
+            background-color: var(--primary-purple);
+            color: white;
+        }
+
+        .stock-table input {
+            width: 60px;
+            padding: 0.25rem;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+
+        .close-btn {
+            float: right;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--dark-purple);
+        }
+
+        .save-btn {
+            display: block;
+            margin: 2rem auto;
+            padding: 1rem 3rem;
+        }
+        .file-input {
+            display: none;
+        }
+
+        .processing-message {
+            text-align: center;
+            color: var(--primary-purple);
+            margin: 1rem 0;
+            display: none;
+        }
+
+        /* Add this to your existing styles */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(106, 27, 154, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary-purple);
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="header">James & Harper Reordering</h1>
+        <div class="btn-container">
+            <button class="btn" onclick="handleUploadStock()">Upload Stock File</button>
+            <button class="btn" onclick="openBaseStock()">Base Stock</button>
+        </div>
+    </div>
+    <input type="file" id="fileInput" class="file-input" accept=".xlsx,.xls">
+    <div id="processingMessage" class="processing-message">
+        Processing file... <div class="loading"></div>
+    </div>
+    <div id="baseStockModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h2>Base Stock Entry (in Boxes)</h2>
+            <table class="stock-table" id="stockTable">
+                <thead>
+                    <tr>
+                        <th>Item Name</th>
+                        <th>45</th>
+                        <th>50</th>
+                        <th>55</th>
+                        <th>60</th>
+                        <th>65</th>
+                        <th>70</th>
+                        <th>73</th>
+                        <th>75</th>
+                        <th>XS</th>
+                        <th>S</th>
+                        <th>M</th>
+                        <th>L</th>
+                        <th>XL</th>
+                        <th>2XL</th>
+                        <th>3XL</th>
+                        <th>4XL</th>
+                    </tr>
+                </thead>
+                <tbody id="stockTableBody"></tbody>
+            </table>
+            <button class="btn save-btn" onclick="saveBaseStock()">Save Base Stock</button>
+        </div>
+    </div>
+
+    <script>
+        // Firebase initialization
+        const firebaseConfig = {
+            apiKey: "AIzaSyBfE8ILQAqlfpWMUTIuz5eIKhsZxCsFgo4",
+            authDomain: "hc-order.firebaseapp.com",
+            databaseURL: "https://hc-order-default-rtdb.firebaseio.com",
+            projectId: "hc-order",
+            storageBucket: "hc-order.firebasestorage.app",
+            messagingSenderId: "918783629071",
+            appId: "1:918783629071:web:f32af53f30d15e53e9107a",
+            measurementId: "G-K8Z2DLYSFJ"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Items data with display names and sanitized keys
+        const itemsMap = {
+            "jh_armour_durby_vest_black_5": "JH ARMOUR DURBY VEST BLACK 5",
+            "jh_armour_durby_vest_g_melange_5": "JH ARMOUR DURBY VEST G.MELANGE 5",
+            "jh_armour_durby_vest_white_5": "JH ARMOUR DURBY VEST WHITE 5",
+            "jh_big_sleek_cycling_asst_10": "JH BIG SLEEK CYCLING ASST. 10",
+            "jh_big_sleek_cycling_black_10": "JH BIG SLEEK CYCLING BLACK 10",
+            "jh_blossom_plain_panty_10": "JH BLOSSOM PLAIN PANTY 10",
+            "jh_blossom_print_panty_10": "JH BLOSSOM PRINT PANTY 10",
+            "jh_bright_vest_white_rn_2pc_5": "JH BRIGHT VEST WHITE RN 2PC 5",
+            "jh_camray_lycra_slip_asst_10": "JH CAMRAY LYCRA SLIP ASST. 10",
+            "jh_diva_inner_panty_medium_c_5": "JH DIVA INNER PANTY MEDIUM C 5",
+            "jh_fifa_gym_vest_black_5": "JH FIFA GYM VEST BLACK 5",
+            "jh_fifa_gym_vest_g_melange_5": "JH FIFA GYM VEST G.MELANGE 5",
+            "jh_fifa_gym_vest_white_5": "JH FIFA GYM VEST WHITE 5",
+            "jh_grand_oe_trunk_5": "JH GRAND O.E TRUNK 5",
+            "jh_ie_polo_trunk_10": "JH I.E POLO TRUNK 10",
+            "jh_ie_print_glamour_brief_1pc_10": "JH I.E PRINT GLAMOUR BRIEF 1PC 10",
+            "jh_oe_print_smart_trunk_10": "JH O.E PRINT SMART TRUNK 10",
+            "jh_panther_oe_brief_5": "JH PANTHER O.E BRIEF 5",
+            "jh_relax_vest_desinger_white_5": "JH RELAX VEST DESINGER WHITE 5",
+            "jh_samrat_trunk_printed_oe_10": "JH SAMRAT TRUNK PRINTED O.E 10",
+            "jh_small_polo_oe_trunk_10": "JH SMALL POLO O.E TRUNK 10",
+            "jh_small_sleek_cycling_colour_10": "JH SMALL SLEEK CYCLING COLOUR 10",
+            "jh_spark_vest_colour_rn_10": "JH SPARK VEST COLOUR RN 10",
+            "jh_spark_vest_white_rn_2pc_5": "JH SPARK VEST WHITE RN 2PC 5",
+            "jh_spark_vest_white_rns_2pc_5": "JH SPARK VEST WHITE RNS 2PC 5",
+            "jh_sports_trunk_10": "JH SPORTS TRUNK 10"
+        };
+
+        const sizes = ["45", "50", "55", "60", "65", "70", "73", "75", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
+
+        // Get display name from sanitized key
+        function getDisplayName(key) {
+            return itemsMap[key] || key;
+        }
+
+        // Get sanitized key from display name
+        function getSanitizedKey(displayName) {
+            for (const [key, value] of Object.entries(itemsMap)) {
+                if (value === displayName) return key;
+            }
+            return displayName.toLowerCase().replace(/[.\s#$\[\]]/g, '_');
+        }
+
+        function handleUploadStock() {
+            alert("Upload Stock File functionality to be implemented");
+        }
+
+        function openBaseStock() {
+            const modal = document.getElementById("baseStockModal");
+            modal.style.display = "block";
+            loadBaseStock();
+        }
+
+        function closeModal() {
+            const modal = document.getElementById("baseStockModal");
+            modal.style.display = "none";
+        }
+
+        function createStockTable() {
+            const tbody = document.getElementById("stockTableBody");
+            tbody.innerHTML = "";
+
+            Object.entries(itemsMap).forEach(([key, displayName], index) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${displayName}</td>
+                    ${sizes.map(size => `
+                        <td>
+                            <input type="number" min="0" 
+                                   id="qty-${index}-${size}" 
+                                   data-key="${key}" 
+                                   data-size="${size}">
+                        </td>
+                    `).join("")}
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function loadBaseStock() {
+            createStockTable();
+            database.ref('baseStock').once('value')
+                .then((snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        Object.entries(itemsMap).forEach(([key, displayName], itemIndex) => {
+                            sizes.forEach(size => {
+                                const input = document.getElementById(`qty-${itemIndex}-${size}`);
+                                if (data[key] && data[key][size]) {
+                                    input.value = data[key][size];
+                                }
+                            });
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error("Error loading base stock:", error);
+                    alert("Error loading base stock data");
+                });
+        }
+        function handleUploadStock() {
+            document.getElementById('fileInput').click();
+        }
+
+        function extractNumberFromString(str) {
+            const match = str.match(/\d+$/);
+            return match ? parseInt(match[0]) : null;
+        }
+
+        function getPackSize(itemName) {
+            const packSize = extractNumberFromString(itemName);
+            return packSize === 5 || packSize === 10 ? packSize : 5; // Default to 5 if not found
+        }
+
+        async function processExcelFile(file) {
+            const processingMessage = document.getElementById('processingMessage');
+            processingMessage.style.display = 'block';
+
+            try {
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 'A', range: 4 }); // Start from 5th row
+
+                // Get base stock data from Firebase
+                const baseStockSnapshot = await database.ref('baseStock').once('value');
+                const baseStock = baseStockSnapshot.val() || {};
+
+                const reorderData = {};
+                Object.keys(itemsMap).forEach(key => {
+                    reorderData[key] = {};
+                });
+
+                // Process each row
+                jsonData.forEach(row => {
+                    if (!row.B || !row.D || !row.Q) return; // Skip if missing required fields
+
+                    const itemName = row.B.trim();
+                    const currentStock = parseInt(row.D) || 0;
+                    const size = row.Q.trim();
+
+                    // Find matching item key
+                    const itemKey = Object.keys(itemsMap).find(key => 
+                        itemsMap[key].toUpperCase() === itemName.toUpperCase()
+                    );
+
+                    if (itemKey && sizes.includes(size)) {
+                        const packSize = getPackSize(itemName);
+                        const adjustedStock = Math.floor(currentStock / packSize);
+                        
+                        const baseStockQty = baseStock[itemKey]?.[size] || 0;
+                        const difference = baseStockQty - adjustedStock;
+
+                        if (difference > 0) {
+                            reorderData[itemKey][size] = difference;
+                        }
+                    }
+                });
+
+                // Generate Excel file
+                generateExcelFile(reorderData);
+                processingMessage.style.display = 'none';
+
+            } catch (error) {
+                console.error('Error processing file:', error);
+                alert('Error processing file. Please check the format and try again.');
+                processingMessage.style.display = 'none';
+            }
+        }
+
+        function generateExcelFile(reorderData) {
+            // Create worksheet data
+            const wsData = [
+                ['Item Name', ...sizes] // Header row
+            ];
+
+            // Add data rows
+            Object.entries(itemsMap).forEach(([key, displayName]) => {
+                const row = [displayName];
+                sizes.forEach(size => {
+                    row.push(reorderData[key][size] || '');
+                });
+                wsData.push(row);
+            });
+
+            // Create worksheet
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+            // Create workbook
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Reorder Quantities');
+
+            // Style the worksheet
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            for (let R = range.s.r; R <= range.e.r; R++) {
+                for (let C = range.s.c; C <= range.e.c; C++) {
+                    const cell_address = XLSX.utils.encode_cell({ r: R, c: C });
+                    if (!ws[cell_address]) continue;
+                    
+                    // Add cell styling
+                    ws[cell_address].s = {
+                        font: { sz: 12 },
+                        alignment: { horizontal: C === 0 ? 'left' : 'center' },
+                        border: {
+                            top: { style: 'thin' },
+                            bottom: { style: 'thin' },
+                            left: { style: 'thin' },
+                            right: { style: 'thin' }
+                        }
+                    };
+
+                    // Header row styling
+                    if (R === 0) {
+                        ws[cell_address].s.font.bold = true;
+                        ws[cell_address].s.fill = {
+                            fgColor: { rgb: "6A1B9A" },
+                            patternType: 'solid'
+                        };
+                        ws[cell_address].s.font.color = { rgb: "FFFFFF" };
+                    }
+                }
+            }
+
+            // Auto-size columns
+            const max_width = sizes.map(s => s.length);
+            max_width[0] = 40; // Width for item names
+            ws['!cols'] = max_width.map(w => ({ wch: w }));
+
+            // Save file
+            XLSX.writeFile(wb, 'JH_Reorder_Quantities.xlsx');
+        }
+
+        // Add event listener for file input
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                processExcelFile(file);
+            }
+        });
+        function saveBaseStock() {
+            const baseStock = {};
+            Object.keys(itemsMap).forEach(key => {
+                baseStock[key] = {};
+                sizes.forEach(size => {
+                    const input = document.querySelector(`input[data-key="${key}"][data-size="${size}"]`);
+                    if (input && input.value) {
+                        baseStock[key][size] = parseInt(input.value);
+                    }
+                });
+            });
+
+            database.ref('baseStock').set(baseStock)
+                .then(() => {
+                    alert("Base stock saved successfully!");
+                    closeModal();
+                })
+                .catch(error => {
+                    console.error("Error saving base stock:", error);
+                    alert("Error saving base stock data");
+                });
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById("baseStockModal");
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>
